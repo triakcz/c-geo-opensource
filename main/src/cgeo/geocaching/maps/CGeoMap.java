@@ -15,6 +15,7 @@ import cgeo.geocaching.cgeocaches;
 import cgeo.geocaching.activity.ActivityMixin;
 import cgeo.geocaching.connector.ConnectorFactory;
 import cgeo.geocaching.connector.gc.Login;
+import cgeo.geocaching.downloadservice.CacheDownloadService;
 import cgeo.geocaching.enumerations.CacheType;
 import cgeo.geocaching.enumerations.LiveMapStrategy.Strategy;
 import cgeo.geocaching.enumerations.LoadFlags;
@@ -47,7 +48,6 @@ import org.apache.commons.lang3.builder.HashCodeBuilder;
 import android.app.Activity;
 import android.app.ProgressDialog;
 import android.content.Context;
-import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
@@ -85,7 +85,7 @@ public class CGeoMap extends AbstractMap implements OnMapDragListener, ViewFacto
     /** max. number of caches displayed in the Live Map */
     public static final int MAX_CACHES = 500;
 
-    /**Controls the behaviour of the map*/
+    /** Controls the behaviour of the map */
     public enum MapMode {
         /** Live Map where caches are loaded from online */
         LIVE_ONLINE,
@@ -98,6 +98,7 @@ public class CGeoMap extends AbstractMap implements OnMapDragListener, ViewFacto
         /** Map with a list of caches (no reload on move) */
         LIST
     }
+
     /** Handler Messages */
     private static final int HIDE_PROGRESS = 0;
     private static final int SHOW_PROGRESS = 1;
@@ -191,7 +192,7 @@ public class CGeoMap extends AbstractMap implements OnMapDragListener, ViewFacto
     // views
     private ImageSwitcher myLocSwitch = null;
 
-    /**Controls the map behaviour*/
+    /** Controls the map behaviour */
     private MapMode mapMode = null;
     // other things
     private boolean liveChanged = false; // previous state for loadTimer
@@ -650,60 +651,19 @@ public class CGeoMap extends AbstractMap implements OnMapDragListener, ViewFacto
             case MENU_STORE_CACHES:
                 if (!isLoading()) {
                     final Set<String> geocodesInViewport = getGeocodesForCachesInViewport();
-                    final List<String> geocodes = new ArrayList<String>();
+
+                    boolean queuedCache = false;
 
                     for (final String geocode : geocodesInViewport) {
                         if (!app.isOffline(geocode, null)) {
-                            geocodes.add(geocode);
+                            Intent intent = new Intent(getActivity().getApplicationContext(), CacheDownloadService.class);
+                            intent.putExtra(CacheDownloadService.EXTRA_GEOCODE, geocode);
+                            queuedCache = true;
                         }
                     }
-
-                    detailTotal = geocodes.size();
-                    detailProgress = 0;
-
-                    if (detailTotal == 0) {
+                    if (!queuedCache) {
                         ActivityMixin.showToast(activity, res.getString(R.string.warn_save_nothing));
-
-                        return true;
                     }
-
-                    final LoadDetailsHandler loadDetailsHandler = new LoadDetailsHandler();
-
-                    waitDialog = new ProgressDialog(activity);
-                    waitDialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
-                    waitDialog.setCancelable(true);
-                    waitDialog.setCancelMessage(loadDetailsHandler.cancelMessage());
-                    waitDialog.setMax(detailTotal);
-                    waitDialog.setOnCancelListener(new DialogInterface.OnCancelListener() {
-
-                        @Override
-                        public void onCancel(DialogInterface arg0) {
-                            try {
-                                if (loadDetailsThread != null) {
-                                    loadDetailsThread.stopIt();
-                                }
-
-                                geoDirUpdate.startDir();
-                            } catch (Exception e) {
-                                Log.e("cgeocaches.onPrepareOptionsMenu.onCancel: " + e.toString());
-                            }
-                        }
-                    });
-
-                    float etaTime = detailTotal * 7.0f / 60.0f;
-                    if (etaTime < 0.4) {
-                        waitDialog.setMessage(res.getString(R.string.caches_downloading) + " " + res.getString(R.string.caches_eta_ltm));
-                    } else if (etaTime < 1.5) {
-                        waitDialog.setMessage(res.getString(R.string.caches_downloading) + " " + Math.round(etaTime) + " " + res.getString(R.string.caches_eta_min));
-                    } else {
-                        waitDialog.setMessage(res.getString(R.string.caches_downloading) + " " + Math.round(etaTime) + " " + res.getString(R.string.caches_eta_mins));
-                    }
-                    waitDialog.show();
-
-                    detailProgressTime = System.currentTimeMillis();
-
-                    loadDetailsThread = new LoadDetails(loadDetailsHandler, geocodes);
-                    loadDetailsThread.start();
                 }
                 return true;
             case MENU_CIRCLE_MODE:

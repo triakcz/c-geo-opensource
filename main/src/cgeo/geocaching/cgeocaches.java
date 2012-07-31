@@ -9,6 +9,7 @@ import cgeo.geocaching.apps.cachelist.CacheListAppFactory;
 import cgeo.geocaching.connector.gc.AbstractSearchThread;
 import cgeo.geocaching.connector.gc.GCParser;
 import cgeo.geocaching.connector.gc.SearchHandler;
+import cgeo.geocaching.downloadservice.CacheDownloadService;
 import cgeo.geocaching.enumerations.CacheListType;
 import cgeo.geocaching.enumerations.CacheType;
 import cgeo.geocaching.enumerations.LoadFlags;
@@ -20,8 +21,6 @@ import cgeo.geocaching.filter.IFilter;
 import cgeo.geocaching.geopoint.Geopoint;
 import cgeo.geocaching.maps.CGeoMap;
 import cgeo.geocaching.network.Cookies;
-import cgeo.geocaching.network.Network;
-import cgeo.geocaching.network.Parameters;
 import cgeo.geocaching.sorting.CacheComparator;
 import cgeo.geocaching.sorting.ComparatorUserInterface;
 import cgeo.geocaching.sorting.EventDateComparator;
@@ -31,8 +30,6 @@ import cgeo.geocaching.ui.LoggingUI;
 import cgeo.geocaching.utils.GeoDirHandler;
 import cgeo.geocaching.utils.Log;
 import cgeo.geocaching.utils.RunnableWithArgument;
-
-import ch.boye.httpclientandroidlib.HttpResponse;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -116,10 +113,7 @@ public class cgeocaches extends AbstractListActivity {
     private String title = "";
     private int detailTotal = 0;
     private int detailProgress = 0;
-    private long detailProgressTime = 0L;
-    private LoadDetailsThread threadDetails = null;
-    private LoadFromWebThread threadWeb = null;
-    private int listId = StoredList.TEMPORARY_LIST_ID;  // Only meaningful for the OFFLINE type
+    private int listId = StoredList.TEMPORARY_LIST_ID; // Only meaningful for the OFFLINE type
     private final GeoDirHandler geoDirHandler = new GeoDirHandler() {
 
         @Override
@@ -148,7 +142,7 @@ public class cgeocaches extends AbstractListActivity {
             }
         }
 
-	};
+    };
     private ContextMenuInfo lastMenuInfo;
     private String contextMenuGeocode = "";
     /**
@@ -291,93 +285,6 @@ public class cgeocaches extends AbstractListActivity {
         }
     }
 
-    private Handler loadDetailsHandler = new Handler() {
-
-        @Override
-        public void handleMessage(Message msg) {
-            setAdapter();
-
-            if (msg.what > -1) {
-                cacheList.get(msg.what).setStatusChecked(false);
-
-                if (adapter != null) {
-                    adapter.notifyDataSetChanged();
-                }
-
-                int secondsElapsed = (int) ((System.currentTimeMillis() - detailProgressTime) / 1000);
-                int minutesRemaining = ((detailTotal - detailProgress) * secondsElapsed / ((detailProgress > 0) ? detailProgress : 1) / 60);
-
-                progress.setProgress(detailProgress);
-                if (minutesRemaining < 1) {
-                    progress.setMessage(res.getString(R.string.caches_downloading) + " " + res.getString(R.string.caches_eta_ltm));
-                } else if (minutesRemaining == 1) {
-                    progress.setMessage(res.getString(R.string.caches_downloading) + " " + minutesRemaining + " " + res.getString(R.string.caches_eta_min));
-                } else {
-                    progress.setMessage(res.getString(R.string.caches_downloading) + " " + minutesRemaining + " " + res.getString(R.string.caches_eta_mins));
-                }
-            } else if (msg.what == MSG_CANCEL) {
-                if (threadDetails != null) {
-                    threadDetails.kill();
-                }
-            } else if (msg.what == MSG_RESTART_GEO_AND_DIR) {
-                startGeoAndDir();
-            } else {
-                if (search != null) {
-                    final Set<cgCache> cacheListTmp = search.getCachesFromSearchResult(LoadFlags.LOAD_CACHE_OR_DB);
-                    if (CollectionUtils.isNotEmpty(cacheListTmp)) {
-                        cacheList.clear();
-                        cacheList.addAll(cacheListTmp);
-                    }
-                }
-
-                setAdapterCurrentCoordinates(false);
-
-                showProgress(false);
-                progress.dismiss();
-
-                startGeoAndDir();
-            }
-        }
-    };
-    private Handler downloadFromWebHandler = new Handler() {
-        @Override
-        public void handleMessage(Message msg) {
-            setAdapter();
-
-            if (adapter != null) {
-                adapter.notifyDataSetChanged();
-            }
-
-            if (msg.what == 0) { //no caches
-                progress.setMessage(res.getString(R.string.web_import_waiting));
-            } else if (msg.what == 1) { //cache downloading
-                progress.setMessage(res.getString(R.string.web_downloading) + " " + (String) msg.obj + '…');
-            } else if (msg.what == 2) { //Cache downloaded
-                progress.setMessage(res.getString(R.string.web_downloaded) + " " + (String) msg.obj + '…');
-                refreshCurrentList();
-            } else if (msg.what == -2) {
-                progress.dismiss();
-                showToast(res.getString(R.string.sendToCgeo_download_fail));
-                finish();
-            } else if (msg.what == -3) {
-                progress.dismiss();
-                showToast(res.getString(R.string.sendToCgeo_no_registration));
-                finish();
-            } else if (msg.what == MSG_CANCEL) {
-                if (threadWeb != null) {
-                    threadWeb.kill();
-                }
-            } else {
-                if (adapter != null) {
-                    adapter.setSelectMode(false);
-                }
-
-                replaceCacheListFromSearch();
-
-                progress.dismiss();
-            }
-        }
-    };
     private Handler dropDetailsHandler = new Handler() {
 
         @Override
@@ -879,8 +786,8 @@ public class cgeocaches extends AbstractListActivity {
                 });
                 return true;
             case MENU_IMPORT_WEB:
-                importWeb();
-                return false;
+                throw new UnsupportedOperationException("NOT YET IMPLEMENTED");
+                //return false;
             case MENU_EXPORT:
                 ExportFactory.showExportMenu(adapter.getCheckedOrAllCaches(), this);
                 return false;
@@ -1137,14 +1044,14 @@ public class cgeocaches extends AbstractListActivity {
     }
 
     private void startGeoAndDir() {
-	geoDirHandler.startGeo();
-	if (Settings.isLiveMap()) {
-	    geoDirHandler.startDir();
-	}
+        geoDirHandler.startGeo();
+        if (Settings.isLiveMap()) {
+            geoDirHandler.startDir();
+        }
     }
 
     private void removeGeoAndDir() {
-	geoDirHandler.stopGeoAndDir();
+        geoDirHandler.stopGeoAndDir();
     }
 
     private void importGpx() {
@@ -1157,29 +1064,25 @@ public class cgeocaches extends AbstractListActivity {
         refreshCurrentList();
     }
 
+    /**
+     * Sends caches to refresh by service
+     */
     public void refreshStored() {
-        detailTotal = adapter.getCheckedOrAllCount();
-        detailProgress = 0;
-
-        showProgress(false);
-
-        int etaTime = ((detailTotal * 25) / 60);
-        String message;
-        if (etaTime < 1) {
-            message = res.getString(R.string.caches_downloading) + " " + res.getString(R.string.caches_eta_ltm);
-        } else if (etaTime == 1) {
-            message = res.getString(R.string.caches_downloading) + " " + etaTime + " " + res.getString(R.string.caches_eta_min);
-        } else {
-            message = res.getString(R.string.caches_downloading) + " " + etaTime + " " + res.getString(R.string.caches_eta_mins);
+        Log.d("refresh stored");
+        final List<cgCache> cacheListTemp = new ArrayList<cgCache>(cacheList);
+        for (cgCache cache : cacheListTemp) {
+            Log.d("refresh stored - loop " + cache.getGeocode());
+            if (adapter.getCheckedCount() == 0 || cache.isStatusChecked()) {
+                Log.d("refresh stored - loop - startservice " + cache.getGeocode());
+                int listIdToSave = Math.max(listId, StoredList.STANDARD_LIST_ID);
+                Intent serviceIntent = new Intent(getApplicationContext(), CacheDownloadService.class);
+                serviceIntent.putExtra(CacheDownloadService.EXTRA_GEOCODE, cache.getGeocode());
+                serviceIntent.putExtra(CacheDownloadService.EXTRA_LIST_ID, listIdToSave);
+                serviceIntent.putExtra(CacheDownloadService.EXTRA_REFRESH, true);
+                startService(serviceIntent);
+            }
         }
-
-        progress.show(this, null, message, ProgressDialog.STYLE_HORIZONTAL, loadDetailsHandler.obtainMessage(MSG_CANCEL));
-        progress.setMaxProgressAndReset(detailTotal);
-
-        detailProgressTime = System.currentTimeMillis();
-
-        threadDetails = new LoadDetailsThread(loadDetailsHandler, listId);
-        threadDetails.start();
+        adapter.setSelectMode(false);
     }
 
     public void removeFromHistoryCheck() {
@@ -1215,16 +1118,6 @@ public class cgeocaches extends AbstractListActivity {
         progress.setMaxProgressAndReset(detailTotal);
 
         new RemoveFromHistoryThread(removeFromHistoryHandler).start();
-    }
-
-    public void importWeb() {
-        detailProgress = 0;
-
-        showProgress(false);
-        progress.show(this, null, res.getString(R.string.web_import_waiting), true, downloadFromWebHandler.obtainMessage(MSG_CANCEL));
-
-        threadWeb = new LoadFromWebThread(downloadFromWebHandler, listId);
-        threadWeb.start();
     }
 
     public void dropStored(final boolean removeListAfterwards) {
@@ -1362,168 +1255,6 @@ public class cgeocaches extends AbstractListActivity {
         }
     }
 
-    private class LoadDetailsThread extends Thread {
-
-        final private Handler handler;
-        final private int listIdLD;
-        private volatile boolean needToStop = false;
-        private int checked = 0;
-        private long last = 0L;
-
-        public LoadDetailsThread(Handler handlerIn, int listId) {
-            handler = handlerIn;
-
-            // in case of online lists, set the list id to the standard list
-            this.listIdLD = Math.max(listId, StoredList.STANDARD_LIST_ID);
-
-            if (adapter != null) {
-                checked = adapter.getCheckedCount();
-            }
-        }
-
-        public void kill() {
-            needToStop = true;
-        }
-
-        @Override
-        public void run() {
-            removeGeoAndDir();
-
-            final List<cgCache> cacheListTemp = new ArrayList<cgCache>(cacheList);
-            for (cgCache cache : cacheListTemp) {
-                if (checked > 0 && !cache.isStatusChecked()) {
-                    handler.sendEmptyMessage(0);
-
-                    yield();
-                    continue;
-                }
-
-                try {
-                    if (needToStop) {
-                        Log.i("Stopped storing process.");
-                        break;
-                    }
-
-                    if ((System.currentTimeMillis() - last) < 1500) {
-                        try {
-                            int delay = 1000 + ((Double) (Math.random() * 1000)).intValue() - (int) (System.currentTimeMillis() - last);
-                            if (delay < 0) {
-                                delay = 500;
-                            }
-
-                            Log.i("Waiting for next cache " + delay + " ms");
-                        } catch (Exception e) {
-                            Log.e("cgeocaches.LoadDetailsThread.sleep: " + e.toString());
-                        }
-                    }
-
-                    if (needToStop) {
-                        Log.i("Stopped storing process.");
-                        break;
-                    }
-
-                    detailProgress++;
-                    cache.refresh(listIdLD, null);
-
-                    handler.sendEmptyMessage(cacheList.indexOf(cache));
-
-                    yield();
-                } catch (Exception e) {
-                    Log.e("cgeocaches.LoadDetailsThread: " + e.toString());
-                }
-
-                last = System.currentTimeMillis();
-            }
-            cacheListTemp.clear();
-
-            handler.sendEmptyMessage(MSG_RESTART_GEO_AND_DIR);
-            handler.sendEmptyMessage(MSG_DONE);
-        }
-    }
-
-    private class LoadFromWebThread extends Thread {
-
-        final private Handler handler;
-        final private int listIdLFW;
-        private volatile boolean needToStop = false;
-
-        public LoadFromWebThread(Handler handlerIn, int listId) {
-            handler = handlerIn;
-            listIdLFW = listId;
-        }
-
-        public void kill() {
-            needToStop = true;
-        }
-
-        @Override
-        public void run() {
-            int ret = MSG_DONE;
-
-            removeGeoAndDir();
-
-            int delay = -1;
-            int times = 0;
-
-            while (!needToStop && times < 3 * 60 / 5) // maximum: 3 minutes, every 5 seconds
-            {
-                //download new code
-                String deviceCode = Settings.getWebDeviceCode();
-                if (deviceCode == null) {
-                    deviceCode = "";
-                }
-                final Parameters params = new Parameters("code", deviceCode);
-                HttpResponse responseFromWeb = Network.getRequest("http://send2.cgeo.org/read.html", params);
-
-                if (responseFromWeb != null && responseFromWeb.getStatusLine().getStatusCode() == 200) {
-                    final String response = Network.getResponseData(responseFromWeb);
-                    if (response.length() > 2) {
-                        delay = 1;
-                        handler.sendMessage(handler.obtainMessage(1, response));
-                        yield();
-
-                        cgCache.storeCache(null, response, listIdLFW, false, null);
-
-                        handler.sendMessage(handler.obtainMessage(2, response));
-                        yield();
-                    } else if ("RG".equals(response)) {
-                        //Server returned RG (registration) and this device no longer registered.
-                        Settings.setWebNameCode(null, null);
-                        ret = -3;
-                        needToStop = true;
-                        break;
-                    } else {
-                        delay = 0;
-                        handler.sendEmptyMessage(0);
-                        yield();
-                    }
-                }
-                if (responseFromWeb == null || responseFromWeb.getStatusLine().getStatusCode() != 200) {
-                    ret = -2;
-                    needToStop = true;
-                    break;
-                }
-
-                try {
-                    yield();
-                    if (delay == 0)
-                    {
-                        sleep(5000); //No caches 5s
-                        times++;
-                    } else {
-                        sleep(500); //Cache was loaded 0.5s
-                        times = 0;
-                    }
-                } catch (InterruptedException e) {
-                    Log.e("cgeocaches.LoadFromWebThread.sleep: " + e.toString());
-                }
-            }
-
-            handler.sendEmptyMessage(ret);
-
-            startGeoAndDir();
-        }
-    }
 
     private class DropDetailsThread extends Thread {
 
