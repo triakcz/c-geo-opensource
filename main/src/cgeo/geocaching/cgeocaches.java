@@ -786,8 +786,10 @@ public class cgeocaches extends AbstractListActivity {
                 });
                 return true;
             case MENU_IMPORT_WEB:
-                throw new UnsupportedOperationException("NOT YET IMPLEMENTED");
-                //return false;
+                Intent intent = new Intent(getApplicationContext(), CacheDownloadService.class);
+                intent.putExtra(CacheDownloadService.EXTRA_SEND2CGEO, true);
+                startService(intent);
+                return true;
             case MENU_EXPORT:
                 ExportFactory.showExportMenu(adapter.getCheckedOrAllCaches(), this);
                 return false;
@@ -1254,7 +1256,6 @@ public class cgeocaches extends AbstractListActivity {
             replaceCacheListFromSearch();
         }
     }
-
 
     private class DropDetailsThread extends Thread {
 
