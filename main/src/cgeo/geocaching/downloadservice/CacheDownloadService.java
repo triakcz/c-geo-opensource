@@ -27,8 +27,8 @@ import java.util.concurrent.TimeUnit;
 
 public class CacheDownloadService extends Service {
 
-    private boolean running = false;
-    private boolean send2cgeorunning = false;
+    private volatile boolean downloadTaskRunning = false;
+    private volatile boolean send2CgeoRunning = false;
     private QueueItem actualCache;
 
     private RemoteCallbackList<ICacheDownloadServiceCallback> callbackList = new RemoteCallbackList<ICacheDownloadServiceCallback>();
@@ -53,10 +53,10 @@ public class CacheDownloadService extends Service {
      * item container for processing queue
      */
     private class QueueItem {
-        private String cacheCode;
-        private int startId;
-        private int listId;
-        private OperationType operation;
+        private final String cacheCode;
+        private final int startId;
+        private final int listId;
+        private final OperationType operation;
 
         public QueueItem(String cacheCode, int startId, int listId, OperationType type) {
             this.startId = startId;
@@ -66,7 +66,7 @@ public class CacheDownloadService extends Service {
         }
 
         public QueueItem(String geocode) {
-            this.cacheCode = geocode;
+            this(geocode, 0, 0, OperationType.STORE);
         }
 
         public String getCacheCode() {
@@ -148,8 +148,8 @@ public class CacheDownloadService extends Service {
                         e.printStackTrace();
                     }
 
-                    if (!running) {
-                        running = true;
+                    if (!downloadTaskRunning) {
+                        downloadTaskRunning = true;
                         new DownloadCachesTask().execute();
                     }
                 }
@@ -159,8 +159,8 @@ public class CacheDownloadService extends Service {
     }
 
     private void startSend2Cgeo(int startId) {
-        if (send2cgeorunning == false) {
-            send2cgeorunning = true;
+        if (send2CgeoRunning == false) {
+            send2CgeoRunning = true;
             send2cgeostartId = startId;
             ActivityMixin.showShortToast(this, getString(R.string.download_service_send2cgeostart));
             new Send2CgeoRequestTask().execute();
@@ -240,7 +240,7 @@ public class CacheDownloadService extends Service {
             if (ret == SEND2CGEO_DONE) {
                 publishProgress(getString(R.string.download_service_send2cgefinished));
             }
-            send2cgeorunning = false;
+            send2CgeoRunning = false;
             stopSelf(send2cgeostartId);
             return null;
         }
@@ -456,7 +456,7 @@ public class CacheDownloadService extends Service {
             QueueItem cacheItem = null;
             try {
                 do {
-                    cacheItem = queue.poll(1, TimeUnit.SECONDS);
+                    cacheItem = queue.poll(15, TimeUnit.SECONDS);
                     if (cacheItem != null) {
                         Log.d("CACHEDOWNLOAD STARTING DOWNLOAD" + cacheItem.getCacheCode());
                         actualCache = cacheItem;
@@ -479,7 +479,7 @@ public class CacheDownloadService extends Service {
 
                         // we need most recent start Id to kill service (do not ack for
                         // download if it is newer as send2cgeo thread, save for future use)
-                        if (!send2cgeorunning) {
+                        if (!send2CgeoRunning) {
                             stopSelf(cacheItem.getStartId());
                         } else if (send2cgeostartId < cacheItem.getStartId()) {
                             send2cgeostartId = cacheItem.getStartId();
@@ -491,8 +491,8 @@ public class CacheDownloadService extends Service {
                         //Random wait between caches to prevent hogging of servers
                         Thread.sleep((long) (Math.random() * 5000) + 1000);
                     }
-                } while (cacheItem != null || send2cgeorunning);
-                running = false;
+                } while (cacheItem != null || send2CgeoRunning);
+                downloadTaskRunning = false;
             } catch (InterruptedException e) {
             }
             return null;
