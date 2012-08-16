@@ -42,6 +42,8 @@ public class CacheDownloadService extends Service {
 
     private int send2cgeostartId;
 
+    private int downloadedCaches = 0;
+
     LinkedBlockingQueue<QueueItem> queue = new LinkedBlockingQueue<QueueItem>();
 
     private enum OperationType {
@@ -53,14 +55,14 @@ public class CacheDownloadService extends Service {
      * item container for processing queue
      */
     private class QueueItem {
-        private final String cacheCode;
+        private final String geocode;
         private final int startId;
         private final int listId;
         private final OperationType operation;
 
         public QueueItem(String cacheCode, int startId, int listId, OperationType type) {
             this.startId = startId;
-            this.cacheCode = cacheCode;
+            this.geocode = cacheCode;
             this.listId = listId;
             this.operation = type;
         }
@@ -69,28 +71,12 @@ public class CacheDownloadService extends Service {
             this(geocode, 0, 0, OperationType.STORE);
         }
 
-        public String getCacheCode() {
-            return cacheCode;
-        }
-
-        public int getStartId() {
-            return startId;
-        }
-
-        public int getListId() {
-            return listId;
-        }
-
-        public OperationType getOperation() {
-            return operation;
-        }
-
         @Override
         public int hashCode() {
             final int prime = 31;
             int result = 1;
             result = prime * result + getOuterType().hashCode();
-            result = prime * result + ((cacheCode == null) ? 0 : cacheCode.hashCode());
+            result = prime * result + ((geocode == null) ? 0 : geocode.hashCode());
             result = prime * result + startId;
             return result;
         }
@@ -110,11 +96,11 @@ public class CacheDownloadService extends Service {
             if (!getOuterType().equals(other.getOuterType())) {
                 return false;
             }
-            if (cacheCode == null) {
-                if (other.cacheCode != null) {
+            if (geocode == null) {
+                if (other.geocode != null) {
                     return false;
                 }
-            } else if (!cacheCode.equals(other.cacheCode)) {
+            } else if (!geocode.equals(other.geocode)) {
                 return false;
             }
             return true;
@@ -241,7 +227,9 @@ public class CacheDownloadService extends Service {
                 publishProgress(getString(R.string.download_service_send2cgefinished));
             }
             send2CgeoRunning = false;
-            stopSelf(send2cgeostartId);
+            if (actualCache != null && actualCache.startId > send2cgeostartId) {
+                stopSelf(send2cgeostartId);
+            }
             return null;
         }
 
@@ -330,14 +318,14 @@ public class CacheDownloadService extends Service {
      */
     @TargetApi(5)
     private void showNotification() {
-        String ticker = (actualCache == null) ? "DownloadService idle." : "Downloading " + actualCache.getCacheCode();
+        String ticker = (actualCache == null) ? "DownloadService idle." : "Downloading " + actualCache.geocode;
         Notification notification = new Notification(R.drawable.icon_sync, ticker, System.currentTimeMillis());
         Intent notificationIntent = new Intent(this, DownloadManagerActivity.class);
         PendingIntent contentIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
         StringBuilder status = new StringBuilder();
         if (actualCache != null) {
             status.append("Downloading ");
-            status.append(actualCache.getCacheCode());
+            status.append(actualCache.geocode);
             status.append(", queue size " + queue.size());
         }
         notification.setLatestEventInfo(getApplicationContext(), "Download service", status.toString(), contentIntent);
@@ -362,7 +350,7 @@ public class CacheDownloadService extends Service {
         String[] result = new String[queueAsArray.length];
 
         for (int i = 0; i < queueAsArray.length; i++) {
-            result[i] = ((QueueItem) (queueAsArray[i])).cacheCode;
+            result[i] = ((QueueItem) (queueAsArray[i])).geocode;
         }
         return result;
     }
@@ -386,7 +374,7 @@ public class CacheDownloadService extends Service {
             @Override
             public String actualDownload() throws RemoteException {
                 if (actualCache != null) {
-                    return actualCache.getCacheCode();
+                    return actualCache.geocode;
                 }
                 return null;
             }
@@ -453,26 +441,26 @@ public class CacheDownloadService extends Service {
 
         @Override
         protected Void doInBackground(Void... params) {
-            QueueItem cacheItem = null;
             try {
                 do {
-                    cacheItem = queue.poll(15, TimeUnit.SECONDS);
-                    if (cacheItem != null) {
-                        Log.d("CACHEDOWNLOAD STARTING DOWNLOAD" + cacheItem.getCacheCode());
-                        actualCache = cacheItem;
+                    actualCache = queue.poll(15, TimeUnit.SECONDS);
+                    //Random wait between caches to prevent hogging of servers
+                    Thread.sleep((long) (Math.random() * 5000) + 1000);
+                    if (actualCache != null) {
+                        Log.d("CACHEDOWNLOAD STARTING DOWNLOAD" + actualCache.geocode);
                         notifyChanges();
                         cgCache cache = new cgCache();
-                        cache.setGeocode(cacheItem.getCacheCode());
-                        cache.setListId(cacheItem.getListId());
+                        cache.setGeocode(actualCache.geocode);
+                        cache.setListId(actualCache.listId);
 
-                        switch (cacheItem.operation) {
+                        switch (actualCache.operation) {
                             case STORE:
                                 //TODO: use handler in the future
                                 cache.store(null);
                                 break;
                             case REFRESH:
                                 //TODO: use handler in the future
-                                cache.refresh(cacheItem.getListId(), null);
+                                cache.refresh(actualCache.listId, null);
                                 break;
 
                         }
@@ -480,18 +468,16 @@ public class CacheDownloadService extends Service {
                         // we need most recent start Id to kill service (do not ack for
                         // download if it is newer as send2cgeo thread, save for future use)
                         if (!send2CgeoRunning) {
-                            stopSelf(cacheItem.getStartId());
-                        } else if (send2cgeostartId < cacheItem.getStartId()) {
-                            send2cgeostartId = cacheItem.getStartId();
+                            stopSelf(actualCache.startId);
+                        } else if (send2cgeostartId < actualCache.startId) {
+                            send2cgeostartId = actualCache.startId;
                         }
 
-                        Log.d("CACHEDOWNLOAD FINISHED DOWNLOAD" + cacheItem.getCacheCode());
-                        actualCache = null;
+                        Log.d("CACHEDOWNLOAD FINISHED DOWNLOAD" + actualCache.geocode);
+                        downloadedCaches++;
                         notifyChanges(queue.isEmpty());
-                        //Random wait between caches to prevent hogging of servers
-                        Thread.sleep((long) (Math.random() * 5000) + 1000);
                     }
-                } while (cacheItem != null || send2CgeoRunning);
+                } while (actualCache != null || send2CgeoRunning);
                 downloadTaskRunning = false;
             } catch (InterruptedException e) {
             }
