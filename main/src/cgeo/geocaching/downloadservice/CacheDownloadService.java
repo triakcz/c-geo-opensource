@@ -27,8 +27,12 @@ import java.util.concurrent.TimeUnit;
 
 public class CacheDownloadService extends Service {
 
-    private volatile boolean downloadTaskRunning = false;
+    private volatile boolean downloadTaskRunning = true;
     private volatile boolean send2CgeoRunning = false;
+
+    private int send2cgeostartId = 0;
+    private int downloadstartId = 0;
+
     private QueueItem actualCache;
 
     private RemoteCallbackList<ICacheDownloadServiceCallback> callbackList = new RemoteCallbackList<ICacheDownloadServiceCallback>();
@@ -39,8 +43,6 @@ public class CacheDownloadService extends Service {
     public static final String EXTRA_GEOCODE = "GEOCODE";
     public static final String EXTRA_REFRESH = "REFRESH";
     public static final String EXTRA_SEND2CGEO = "SEND2CGEO";
-
-    private int send2cgeostartId;
 
     private int downloadedCaches = 0;
 
@@ -72,16 +74,6 @@ public class CacheDownloadService extends Service {
         }
 
         @Override
-        public int hashCode() {
-            final int prime = 31;
-            int result = 1;
-            result = prime * result + getOuterType().hashCode();
-            result = prime * result + ((geocode == null) ? 0 : geocode.hashCode());
-            result = prime * result + startId;
-            return result;
-        }
-
-        @Override
         public boolean equals(Object obj) {
             if (this == obj) {
                 return true;
@@ -93,9 +85,6 @@ public class CacheDownloadService extends Service {
                 return false;
             }
             QueueItem other = (QueueItem) obj;
-            if (!getOuterType().equals(other.getOuterType())) {
-                return false;
-            }
             if (geocode == null) {
                 if (other.geocode != null) {
                     return false;
@@ -106,9 +95,6 @@ public class CacheDownloadService extends Service {
             return true;
         }
 
-        private CacheDownloadService getOuterType() {
-            return CacheDownloadService.this;
-        }
     }
 
     @Override
@@ -128,6 +114,7 @@ public class CacheDownloadService extends Service {
                     try {
                         if (!queue.contains(item)) {
                             queue.put(item);
+                            ActivityMixin.showShortToast(this, (getString(R.string.download_service_queued_cache, item.geocode)));
                             notifyChanges();
                         }
                     } catch (InterruptedException e) {
@@ -164,6 +151,7 @@ public class CacheDownloadService extends Service {
     class Send2CgeoRequestTask extends AsyncTask<Void, String, Void> {
         volatile boolean needToStop = false;
         int ret = SEND2CGEO_DONE;
+        private static final int maxTimes = 3 * 60 / 5; // maximum: 3 minutes, every 5 seconds
 
         @Override
         protected Void doInBackground(Void... arg0) {
@@ -171,7 +159,7 @@ public class CacheDownloadService extends Service {
             int delay = -1;
             int times = 0;
 
-            while (!needToStop && times < 3 * 60 / 5) // maximum: 3 minutes, every 5 seconds
+            while (!needToStop && times < maxTimes)
             {
                 //download new code
                 String deviceCode = Settings.getWebDeviceCode();
@@ -191,7 +179,6 @@ public class CacheDownloadService extends Service {
                         //TODO: put list ID ... which ?
                         startService(i);
                         notifySend2CgeoStatus(SEND2CGEO_DOWNLOAD_START, response);
-                        publishProgress(getString(R.string.download_service_queued_cache, response));
                     } else if ("RG".equals(response)) {
                         //Server returned RG (registration) and this device no longer registered.
                         Settings.setWebNameCode(null, null);
@@ -201,7 +188,7 @@ public class CacheDownloadService extends Service {
                         break;
                     } else {
                         delay = 0;
-                        notifySend2CgeoStatus(SEND2CGEO_WAITING);
+                        notifySend2CgeoStatus(SEND2CGEO_WAITING, "" + (maxTimes - times));
                     }
                 }
                 if (responseFromWeb == null || responseFromWeb.getStatusLine().getStatusCode() != 200) {
@@ -226,10 +213,8 @@ public class CacheDownloadService extends Service {
             if (ret == SEND2CGEO_DONE) {
                 publishProgress(getString(R.string.download_service_send2cgefinished));
             }
+            Log.d("Send2cgeo stopping");
             send2CgeoRunning = false;
-            if (actualCache != null && actualCache.startId > send2cgeostartId) {
-                stopSelf(send2cgeostartId);
-            }
             return null;
         }
 
@@ -334,6 +319,7 @@ public class CacheDownloadService extends Service {
 
     @Override
     public void onCreate() {
+        ActivityMixin.showShortToast(this, "Cache download service started");
         super.onCreate();
         Log.d("CACHEDOWNLOADSERVICE START");
         notifyChanges();
@@ -428,8 +414,10 @@ public class CacheDownloadService extends Service {
 
     @Override
     public void onDestroy() {
-        Log.d("CACHEDOWNLOADSERVICE STOP");
         notifyClients(true);
+        downloadTaskRunning = false;
+        Log.d("CACHEDOWNLOADSERVICE STOP");
+        ActivityMixin.showShortToast(this, "Cache download service stopped");
         callbackList.kill();
         super.onDestroy();
     }
@@ -441,46 +429,62 @@ public class CacheDownloadService extends Service {
 
         @Override
         protected Void doInBackground(Void... params) {
-            try {
-                do {
-                    actualCache = queue.poll(15, TimeUnit.SECONDS);
+
+            do {
+                try {
+                    actualCache = queue.poll(5, TimeUnit.SECONDS);
                     //Random wait between caches to prevent hogging of servers
                     Thread.sleep((long) (Math.random() * 5000) + 1000);
-                    if (actualCache != null) {
-                        Log.d("CACHEDOWNLOAD STARTING DOWNLOAD" + actualCache.geocode);
-                        notifyChanges();
-                        cgCache cache = new cgCache();
-                        cache.setGeocode(actualCache.geocode);
-                        cache.setListId(actualCache.listId);
+                } catch (InterruptedException e) {
+                    actualCache = null;
+                }
 
-                        switch (actualCache.operation) {
-                            case STORE:
-                                //TODO: use handler in the future
-                                cache.store(null);
-                                break;
-                            case REFRESH:
-                                //TODO: use handler in the future
-                                cache.refresh(actualCache.listId, null);
-                                break;
+                if (actualCache != null) {
+                    downloadstartId = actualCache.startId;
+                    Log.d("CACHEDOWNLOAD STARTING DOWNLOAD" + actualCache.geocode);
+                    notifyChanges();
+                    cgCache cache = new cgCache();
+                    cache.setGeocode(actualCache.geocode);
+                    cache.setListId(actualCache.listId);
 
-                        }
+                    switch (actualCache.operation) {
+                        case STORE:
+                            //TODO: use handler in the future
+                            cache.store(null);
+                            break;
+                        case REFRESH:
+                            //TODO: use handler in the future
+                            cache.refresh(actualCache.listId, null);
+                            break;
 
-                        // we need most recent start Id to kill service (do not ack for
-                        // download if it is newer as send2cgeo thread, save for future use)
-                        if (!send2CgeoRunning) {
-                            stopSelf(actualCache.startId);
-                        } else if (send2cgeostartId < actualCache.startId) {
-                            send2cgeostartId = actualCache.startId;
-                        }
-
-                        Log.d("CACHEDOWNLOAD FINISHED DOWNLOAD" + actualCache.geocode);
-                        downloadedCaches++;
-                        notifyChanges(queue.isEmpty());
                     }
-                } while (actualCache != null || send2CgeoRunning);
-                downloadTaskRunning = false;
-            } catch (InterruptedException e) {
-            }
+
+                    Log.d("CACHEDOWNLOAD FINISHED DOWNLOAD" + actualCache.geocode);
+
+                    downloadedCaches++;
+                    notifyChanges(queue.isEmpty());
+                }
+                // we need most recent start Id to kill service (do not ack for
+                // download if it is newer as send2cgeo thread, save for future use)
+                Log.d("CONFIRMING TASK " + downloadstartId + " " + send2cgeostartId + " " + send2CgeoRunning);
+                if (send2CgeoRunning) {
+                    if (downloadstartId < send2cgeostartId) {
+                        Log.d("CONFIRMING TASK 1 " + downloadstartId);
+                        stopSelf(downloadstartId);
+                    }
+                } else {
+                    if (actualCache == null) {
+                        Log.d("CONFIRMING TASK 2 " + Math.max(downloadstartId, send2cgeostartId));
+                        stopSelf(Math.max(downloadstartId, send2cgeostartId));
+                    } else {
+                        Log.d("CONFIRMING TASK 3 " + Math.min(downloadstartId, send2cgeostartId));
+                        stopSelf(Math.min(downloadstartId, send2cgeostartId));
+                    }
+                }
+            } while (actualCache != null || send2CgeoRunning || downloadTaskRunning);
+            stopSelf();
+            downloadTaskRunning = false;
+
             return null;
         }
     }

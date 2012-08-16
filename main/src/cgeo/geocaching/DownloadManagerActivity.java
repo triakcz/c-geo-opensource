@@ -1,6 +1,7 @@
 package cgeo.geocaching;
 
 import cgeo.geocaching.activity.AbstractActivity;
+import cgeo.geocaching.activity.ActivityMixin;
 import cgeo.geocaching.downloadservice.CacheDownloadService;
 import cgeo.geocaching.downloadservice.ICacheDownloadService;
 import cgeo.geocaching.downloadservice.ICacheDownloadServiceCallback;
@@ -30,7 +31,7 @@ public class DownloadManagerActivity extends AbstractActivity {
     private static final int DS_UPDATE = 35429051;
     private static final int DS_FINISHED = 35429052;
 
-    private static final String GEOCODE = "GEOCODE";
+    private static final String SEND_2_CGEO_EXTRA_STATUS = "GEOCODE";
 
     CacheDownloadServiceConnection cdsConnection = new CacheDownloadServiceConnection();
     ICacheDownloadService downloadService;
@@ -88,10 +89,10 @@ public class DownloadManagerActivity extends AbstractActivity {
                     loadFromWebProgress.setVisibility(View.VISIBLE);
                     switch (msg.what) {
                         case CacheDownloadService.SEND2CGEO_WAITING:
-                            loadFromWebText.setText(R.string.web_import_waiting);
+                            loadFromWebText.setText(getString(R.string.web_import_waiting) + " " + msg.getData().getString(SEND_2_CGEO_EXTRA_STATUS));
                             break;
                         case CacheDownloadService.SEND2CGEO_DOWNLOAD_START:
-                            loadFromWebText.setText(getString(R.string.download_service_queued_cache, msg.getData().getString(GEOCODE)));
+                            loadFromWebText.setText(getString(R.string.download_service_queued_cache, msg.getData().getString(SEND_2_CGEO_EXTRA_STATUS)));
                             break;
                     }
                     break;
@@ -175,10 +176,11 @@ public class DownloadManagerActivity extends AbstractActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        ActivityMixin.showShortToast(this, "DownloadManager onResume");
         Intent service = new Intent(getApplicationContext(), CacheDownloadService.class);
-        //default flags
         serviceIsBound = true;
-        bindService(service, cdsConnection, 0);
+        //default flags
+        bindService(service, cdsConnection, BIND_AUTO_CREATE);
     }
 
     /**
@@ -198,6 +200,7 @@ public class DownloadManagerActivity extends AbstractActivity {
             unbindService(cdsConnection);
             serviceIsBound = false;
         }
+        finish();
     }
 
     /**
@@ -249,7 +252,7 @@ public class DownloadManagerActivity extends AbstractActivity {
             Message msg = new Message();
             msg.what = status;
             Bundle bundle = new Bundle();
-            bundle.putString(GEOCODE, geocode);
+            bundle.putString(SEND_2_CGEO_EXTRA_STATUS, geocode);
             msg.setData(bundle);
             uiHandler.sendMessage(msg);
         }
