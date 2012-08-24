@@ -2,15 +2,10 @@ package cgeo.geocaching.downloadservice;
 
 import cgeo.geocaching.DownloadManagerActivity;
 import cgeo.geocaching.R;
-import cgeo.geocaching.Settings;
 import cgeo.geocaching.StoredList;
 import cgeo.geocaching.cgCache;
 import cgeo.geocaching.activity.ActivityMixin;
-import cgeo.geocaching.network.Network;
-import cgeo.geocaching.network.Parameters;
 import cgeo.geocaching.utils.Log;
-
-import ch.boye.httpclientandroidlib.HttpResponse;
 
 import android.annotation.TargetApi;
 import android.app.Notification;
@@ -28,10 +23,6 @@ import java.util.concurrent.TimeUnit;
 public class CacheDownloadService extends Service {
 
     private volatile boolean downloadTaskRunning = true;
-    private volatile boolean send2CgeoRunning = false;
-
-    private int send2cgeostartId = 0;
-    private int downloadstartId = 0;
 
     private QueueItem actualCache;
 
@@ -42,7 +33,6 @@ public class CacheDownloadService extends Service {
     public static final String EXTRA_LIST_ID = "LIST_ID";
     public static final String EXTRA_GEOCODE = "GEOCODE";
     public static final String EXTRA_REFRESH = "REFRESH";
-    public static final String EXTRA_SEND2CGEO = "SEND2CGEO";
 
     private int downloadedCaches = 0;
 
@@ -101,10 +91,7 @@ public class CacheDownloadService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
             if (intent.getExtras() != null) {
-                if (intent.hasExtra(EXTRA_SEND2CGEO)) {
-                    Log.d("SEND2CGEO request intent received");
-                    startSend2Cgeo(startId);
-                } else if (null != intent.getExtras().getString(EXTRA_GEOCODE)) {
+                if (null != intent.getExtras().getString(EXTRA_GEOCODE)) {
                     int listId = intent.getIntExtra(EXTRA_LIST_ID, StoredList.STANDARD_LIST_ID);
                     QueueItem item =
                             new QueueItem(intent.getExtras().getString(EXTRA_GEOCODE),
@@ -131,105 +118,10 @@ public class CacheDownloadService extends Service {
         return START_STICKY;
     }
 
-    private void startSend2Cgeo(int startId) {
-        if (send2CgeoRunning == false) {
-            send2CgeoRunning = true;
-            send2cgeostartId = startId;
-            ActivityMixin.showShortToast(this, getString(R.string.download_service_send2cgeostart));
-            new Send2CgeoRequestTask().execute();
-        } else {
-            ActivityMixin.showShortToast(this, getString(R.string.download_service_send2cgeo_is_running));
-        }
-    }
-
-    public static final int SEND2CGEO_WAITING = 0;
-    public static final int SEND2CGEO_DOWNLOAD_START = 1;
-    public static final int SEND2CGEO_DOWNLOAD_FAILED = 2;
-    public static final int SEND2CGEO_REGISTER = 3;
-    public static final int SEND2CGEO_DONE = 4;
-
-    class Send2CgeoRequestTask extends AsyncTask<Void, String, Void> {
-        volatile boolean needToStop = false;
-        int ret = SEND2CGEO_DONE;
-        private static final int maxTimes = 3 * 60 / 5; // maximum: 3 minutes, every 5 seconds
-
-        @Override
-        protected Void doInBackground(Void... arg0) {
-
-            int delay = -1;
-            int times = 0;
-
-            while (!needToStop && times < maxTimes)
-            {
-                //download new code
-                String deviceCode = Settings.getWebDeviceCode();
-                if (deviceCode == null) {
-                    deviceCode = "";
-                }
-                final Parameters params = new Parameters("code", deviceCode);
-                HttpResponse responseFromWeb = Network.getRequest("http://send2.cgeo.org/read.html", params);
-
-                if (responseFromWeb != null && responseFromWeb.getStatusLine().getStatusCode() == 200) {
-                    final String response = Network.getResponseData(responseFromWeb);
-                    if (response.length() > 2) {
-                        delay = 1;
-
-                        Intent i = new Intent(CacheDownloadService.this, CacheDownloadService.class);
-                        i.putExtra(CacheDownloadService.EXTRA_GEOCODE, response);
-                        //TODO: put list ID ... which ?
-                        startService(i);
-                        notifySend2CgeoStatus(SEND2CGEO_DOWNLOAD_START, response);
-                    } else if ("RG".equals(response)) {
-                        //Server returned RG (registration) and this device no longer registered.
-                        Settings.setWebNameCode(null, null);
-                        needToStop = true;
-                        ret = SEND2CGEO_REGISTER;
-                        publishProgress(getString(R.string.sendToCgeo_no_registration));
-                        break;
-                    } else {
-                        delay = 0;
-                        notifySend2CgeoStatus(SEND2CGEO_WAITING, "" + (maxTimes - times));
-                    }
-                }
-                if (responseFromWeb == null || responseFromWeb.getStatusLine().getStatusCode() != 200) {
-                    needToStop = true;
-                    ret = SEND2CGEO_DOWNLOAD_FAILED;
-                    break;
-
-                }
-
-                if (delay == 0)
-                {
-                    sleep(5000); //No caches 5s
-                    times++;
-                } else {
-                    sleep(500); //Cache was loaded 0.5s
-                    times = 0;
-                }
-
-            }
-
-            notifySend2CgeoStatus(ret);
-            if (ret == SEND2CGEO_DONE) {
-                publishProgress(getString(R.string.download_service_send2cgefinished));
-            }
-            Log.d("Send2cgeo stopping");
-            send2CgeoRunning = false;
-            return null;
-        }
-
-        @Override
-        protected void onProgressUpdate(String... values) {
-            ActivityMixin.showShortToast(CacheDownloadService.this, values[0]);
-        }
-    }
-
     private static void sleep(long ms) {
         try {
             Thread.sleep(ms);
         } catch (InterruptedException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
         }
     }
 
@@ -250,26 +142,6 @@ public class CacheDownloadService extends Service {
                     } else {
                         cb.notifyRefresh();
                     }
-                } catch (RemoteException e) {
-                    // The RemoteCallbackList will take care of removing
-                    // the dead object for us.
-                }
-            }
-            callbackList.finishBroadcast();
-        }
-    }
-
-    private void notifySend2CgeoStatus(int status) {
-        notifySend2CgeoStatus(status, null);
-    }
-
-    private void notifySend2CgeoStatus(int status, String geocode) {
-        synchronized (callbackList) {
-            final int N = callbackList.beginBroadcast();
-            for (int i = 0; i < N; i++) {
-                try {
-                    ICacheDownloadServiceCallback cb = callbackList.getBroadcastItem(i);
-                    cb.notifySend2CgeoStatus(status, geocode);
                 } catch (RemoteException e) {
                     // The RemoteCallbackList will take care of removing
                     // the dead object for us.
@@ -440,7 +312,6 @@ public class CacheDownloadService extends Service {
                 }
 
                 if (actualCache != null) {
-                    downloadstartId = actualCache.startId;
                     Log.d("CACHEDOWNLOAD STARTING DOWNLOAD" + actualCache.geocode);
                     notifyChanges();
                     cgCache cache = new cgCache();
@@ -449,11 +320,11 @@ public class CacheDownloadService extends Service {
 
                     switch (actualCache.operation) {
                         case STORE:
-                            //TODO: use handler in the future
+                            //TODO: use handler in the future to report more granular progress
                             cache.store(null);
                             break;
                         case REFRESH:
-                            //TODO: use handler in the future
+                            //TODO: use handler in the future to report more granular progress
                             cache.refresh(actualCache.listId, null);
                             break;
 
@@ -462,29 +333,13 @@ public class CacheDownloadService extends Service {
                     Log.d("CACHEDOWNLOAD FINISHED DOWNLOAD" + actualCache.geocode);
 
                     downloadedCaches++;
-                    notifyChanges(queue.isEmpty());
-                }
-                // we need most recent start Id to kill service (do not ack for
-                // download if it is newer as send2cgeo thread, save for future use)
-                Log.d("CONFIRMING TASK " + downloadstartId + " " + send2cgeostartId + " " + send2CgeoRunning);
-                if (send2CgeoRunning) {
-                    if (downloadstartId < send2cgeostartId) {
-                        Log.d("CONFIRMING TASK 1 " + downloadstartId);
-                        stopSelf(downloadstartId);
-                    }
-                } else {
-                    if (actualCache == null) {
-                        Log.d("CONFIRMING TASK 2 " + Math.max(downloadstartId, send2cgeostartId));
-                        stopSelf(Math.max(downloadstartId, send2cgeostartId));
-                    } else {
-                        Log.d("CONFIRMING TASK 3 " + Math.min(downloadstartId, send2cgeostartId));
-                        stopSelf(Math.min(downloadstartId, send2cgeostartId));
-                    }
-                }
-            } while (actualCache != null || send2CgeoRunning || downloadTaskRunning);
-            stopSelf();
-            downloadTaskRunning = false;
 
+                    notifyChanges(queue.isEmpty());
+                    sleep((int) (Math.random() * 3000) + 500);
+                    stopSelf(actualCache.startId);
+                }
+
+            } while (actualCache != null || downloadTaskRunning);
             return null;
         }
     }

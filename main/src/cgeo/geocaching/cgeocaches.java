@@ -10,6 +10,7 @@ import cgeo.geocaching.connector.gc.AbstractSearchThread;
 import cgeo.geocaching.connector.gc.GCParser;
 import cgeo.geocaching.connector.gc.SearchHandler;
 import cgeo.geocaching.downloadservice.CacheDownloadService;
+import cgeo.geocaching.downloadservice.Send2CgeoService;
 import cgeo.geocaching.enumerations.CacheListType;
 import cgeo.geocaching.enumerations.CacheType;
 import cgeo.geocaching.enumerations.LoadFlags;
@@ -786,8 +787,7 @@ public class cgeocaches extends AbstractListActivity {
                 });
                 return true;
             case MENU_IMPORT_WEB:
-                Intent intent = new Intent(getApplicationContext(), CacheDownloadService.class);
-                intent.putExtra(CacheDownloadService.EXTRA_SEND2CGEO, true);
+                Intent intent = new Intent(getApplicationContext(), Send2CgeoService.class);
                 startService(intent);
                 return true;
             case MENU_EXPORT:
@@ -928,8 +928,9 @@ public class cgeocaches extends AbstractListActivity {
                 }, true);
                 break;
             case MENU_STORE_CACHE:
-                //FIXME: this must use the same handler like in the CacheDetailActivity. Will be done by moving the handler into the store method.
-                cache.store(null);
+                Intent downloadService = new Intent(getApplicationContext(), CacheDownloadService.class);
+                downloadService.putExtra(CacheDownloadService.EXTRA_GEOCODE, cache.getGeocode());
+                startService(downloadService);
                 break;
             case MENU_EXPORT:
                 ExportFactory.showExportMenu(Collections.singletonList(cache), this);

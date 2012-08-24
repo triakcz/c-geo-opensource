@@ -246,5 +246,9 @@
             android:name=".downloadservice.CacheDownloadService"
             android:enabled="true" >
         </service>
+        <service
+            android:name=".downloadservice.Send2CgeoService"
+            android:enabled="true" >
+        </service>
 	</application>
 </manifest>

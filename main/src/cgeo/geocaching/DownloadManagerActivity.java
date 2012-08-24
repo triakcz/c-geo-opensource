@@ -5,6 +5,9 @@ import cgeo.geocaching.activity.ActivityMixin;
 import cgeo.geocaching.downloadservice.CacheDownloadService;
 import cgeo.geocaching.downloadservice.ICacheDownloadService;
 import cgeo.geocaching.downloadservice.ICacheDownloadServiceCallback;
+import cgeo.geocaching.downloadservice.ISend2CgeoService;
+import cgeo.geocaching.downloadservice.ISend2CgeoServiceCallback;
+import cgeo.geocaching.downloadservice.Send2CgeoService;
 import cgeo.geocaching.ui.CacheQueueAdapter;
 
 import android.content.ComponentName;
@@ -35,7 +38,10 @@ public class DownloadManagerActivity extends AbstractActivity {
 
     CacheDownloadServiceConnection cdsConnection = new CacheDownloadServiceConnection();
     ICacheDownloadService downloadService;
-    boolean serviceIsBound = false;
+
+    Send2CgeoServiceConnection s2cConnection = new Send2CgeoServiceConnection();
+    ISend2CgeoService s2cService;
+
     private CacheQueueAdapter adapter;
     private LinearLayout loadFromWebLayout;
     private ProgressBar loadFromWebProgress;
@@ -77,21 +83,21 @@ public class DownloadManagerActivity extends AbstractActivity {
                     adapter.clear();
                     break;
 
-                case CacheDownloadService.SEND2CGEO_DONE:
-                case CacheDownloadService.SEND2CGEO_DOWNLOAD_FAILED:
-                case CacheDownloadService.SEND2CGEO_REGISTER:
+                case Send2CgeoService.SEND2CGEO_DONE:
+                case Send2CgeoService.SEND2CGEO_DOWNLOAD_FAILED:
+                case Send2CgeoService.SEND2CGEO_REGISTER:
                     loadFromWebLayout.setVisibility(View.GONE);
                     loadFromWebProgress.setVisibility(View.GONE);
                     break;
-                case CacheDownloadService.SEND2CGEO_DOWNLOAD_START:
-                case CacheDownloadService.SEND2CGEO_WAITING:
+                case Send2CgeoService.SEND2CGEO_DOWNLOAD_START:
+                case Send2CgeoService.SEND2CGEO_WAITING:
                     loadFromWebLayout.setVisibility(View.VISIBLE);
                     loadFromWebProgress.setVisibility(View.VISIBLE);
                     switch (msg.what) {
-                        case CacheDownloadService.SEND2CGEO_WAITING:
+                        case Send2CgeoService.SEND2CGEO_WAITING:
                             loadFromWebText.setText(getString(R.string.web_import_waiting) + " " + msg.getData().getString(SEND_2_CGEO_EXTRA_STATUS));
                             break;
-                        case CacheDownloadService.SEND2CGEO_DOWNLOAD_START:
+                        case Send2CgeoService.SEND2CGEO_DOWNLOAD_START:
                             loadFromWebText.setText(getString(R.string.download_service_queued_cache, msg.getData().getString(SEND_2_CGEO_EXTRA_STATUS)));
                             break;
                     }
@@ -161,8 +167,7 @@ public class DownloadManagerActivity extends AbstractActivity {
                 return true;
 
             case MENU_DOWNLOAD_FROM_WEB:
-                Intent serviceIntent = new Intent(getApplicationContext(), CacheDownloadService.class);
-                serviceIntent.putExtra(CacheDownloadService.EXTRA_SEND2CGEO, true);
+                Intent serviceIntent = new Intent(getApplicationContext(), Send2CgeoService.class);
                 startService(serviceIntent);
                 return true;
             default:
@@ -178,9 +183,12 @@ public class DownloadManagerActivity extends AbstractActivity {
         super.onResume();
         ActivityMixin.showShortToast(this, "DownloadManager onResume");
         Intent service = new Intent(getApplicationContext(), CacheDownloadService.class);
-        serviceIsBound = true;
-        //default flags
-        bindService(service, cdsConnection, BIND_AUTO_CREATE);
+        //default flags - do not create service when it is not running
+        bindService(service, cdsConnection, 0);
+
+        Intent s2cservice = new Intent(getApplicationContext(), Send2CgeoService.class);
+        //default flags - do not create service when it is not running
+        bindService(s2cservice, s2cConnection, 0);
     }
 
     /**
@@ -189,17 +197,25 @@ public class DownloadManagerActivity extends AbstractActivity {
     @Override
     protected void onPause() {
         super.onPause();
-        if (serviceIsBound) {
-            if (downloadService != null) {
-                try {
-                    downloadService.unregisterStatusCallback(callback);
-                } catch (RemoteException e) {
-                    //service crash is possible, but not to be handled when exiting
-                }
+
+        if (downloadService != null) {
+            try {
+                downloadService.unregisterStatusCallback(callback);
+            } catch (RemoteException e) {
+                //service crash is possible, but not to be handled when exiting
             }
-            unbindService(cdsConnection);
-            serviceIsBound = false;
         }
+        unbindService(cdsConnection);
+
+        if (s2cService != null) {
+            try {
+                s2cService.unregisterStatusCallback(s2cCallback);
+            } catch (RemoteException e) {
+                //service crash is possible, but not to be handled when exiting
+            }
+        }
+        unbindService(s2cConnection);
+
         finish();
     }
 
@@ -228,6 +244,30 @@ public class DownloadManagerActivity extends AbstractActivity {
     }
 
     /**
+     * callback class called by android when connection to service is established and closed
+     */
+
+    private class Send2CgeoServiceConnection implements ServiceConnection {
+
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            s2cService = (ISend2CgeoService) service;
+            uiHandler.sendEmptyMessage(Send2CgeoService.SEND2CGEO_STARTED);
+            try {
+                s2cService.registerStatusCallback(s2cCallback);
+            } catch (RemoteException e) {
+                //this shouldn't be fired when service is just connected
+                e.printStackTrace();
+            }
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            s2cService = null;
+        }
+    }
+
+    /**
      * callback Stub to be notified from service on progress
      */
     private ICacheDownloadServiceCallback callback = new ICacheDownloadServiceCallback.Stub() {
@@ -246,6 +286,16 @@ public class DownloadManagerActivity extends AbstractActivity {
         public void notifyFinish() throws RemoteException {
             uiHandler.sendEmptyMessage(DS_FINISHED);
         }
+    };
+
+    /**
+     * callback Stub to be notified from service on progress
+     */
+    private ISend2CgeoServiceCallback s2cCallback = new ISend2CgeoServiceCallback.Stub() {
+
+        /**
+         * callback for send2cgeo service
+         */
 
         @Override
         public void notifySend2CgeoStatus(int status, String geocode) throws RemoteException {
