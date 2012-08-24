@@ -193,4 +193,10 @@ public class Send2CgeoService extends Service {
         } catch (InterruptedException e) {
         }
     }
+
+    @Override
+    public void onDestroy() {
+        running = false;
+        super.onDestroy();
+    }
 }

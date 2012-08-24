@@ -45,8 +45,15 @@
 
         <TextView
             android:id="@+id/webDownloadText"
-            android:layout_width="fill_parent"
-            android:layout_height="wrap_content" />
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <Button
+            android:id="@+id/webDownloadStop"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/web_download_stop" />
     </LinearLayout>
 
     <include

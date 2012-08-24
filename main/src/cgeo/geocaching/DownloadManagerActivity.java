@@ -21,6 +21,8 @@ import android.os.RemoteException;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.View.OnClickListener;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ProgressBar;
@@ -28,7 +30,7 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 
-public class DownloadManagerActivity extends AbstractActivity {
+public class DownloadManagerActivity extends AbstractActivity implements OnClickListener {
 
     private static final int DS_CONNECTED = 35429050;
     private static final int DS_UPDATE = 35429051;
@@ -131,6 +133,7 @@ public class DownloadManagerActivity extends AbstractActivity {
         loadFromWebLayout = (LinearLayout) findViewById(R.id.webDownloadBar);
         loadFromWebProgress = (ProgressBar) loadFromWebLayout.findViewById(R.id.webDownloadProgress);
         loadFromWebText = (TextView) loadFromWebLayout.findViewById(R.id.webDownloadText);
+        ((Button) (findViewById(R.id.webDownloadStop))).setOnClickListener(this);
     }
 
     public static final int MENU_FLUSH = 1125;
@@ -307,4 +310,17 @@ public class DownloadManagerActivity extends AbstractActivity {
             uiHandler.sendMessage(msg);
         }
     };
+
+    @Override
+    public void onClick(View v) {
+        switch (v.getId()) {
+            case R.id.webDownloadStop:
+                stopService(new Intent(getApplicationContext(), Send2CgeoService.class));
+                break;
+
+            default:
+                break;
+        }
+
+    }
 }

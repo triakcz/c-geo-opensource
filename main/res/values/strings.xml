@@ -645,7 +645,8 @@
   <string name="web_import_waiting">Waiting for new caches from web…</string>
   <string name="web_downloading">Downloading</string>
   <string name="web_downloaded">Downloaded</string>
-
+  <string name="web_download_stop">Stop</string>
+  
   <!-- popup -->
   <string name="popup_more">More details</string>
 
