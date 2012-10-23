@@ -74,7 +74,7 @@
     <ListView
         android:id="@+id/downloadlistview"
         android:layout_width="fill_parent"
-        android:layout_height="wrap_content" >
-    </ListView>
+        android:layout_height="wrap_content"
+        android:cacheColorHint="@android:color/transparent" />
 
 </LinearLayout>
