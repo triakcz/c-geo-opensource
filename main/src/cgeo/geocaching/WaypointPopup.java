@@ -11,6 +11,8 @@ import org.apache.commons.lang3.StringUtils;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
@@ -18,12 +20,31 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class WaypointPopup extends AbstractPopupActivity {
+    private static final int MENU_VISITED = 3983;
+
     private int waypointId = 0;
     private Waypoint waypoint = null;
     private TextView waypointDistance = null;
 
     public WaypointPopup() {
         super("c:geo-waypoint-info", R.layout.waypoint_popup);
+    }
+
+    @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+
+        if (waypoint != null && waypoint.isVisited()) {
+            menu.add(0, MENU_VISITED, 0, res.getString(R.string.waypoint_visited)).setIcon(R.drawable.ic_menu_mark);
+        } else {
+            menu.add(0, MENU_VISITED, 0, res.getString(R.string.waypoint_visited));
+        }
+        return super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+
+        return super.onOptionsItemSelected(item);
     }
 
     @Override
