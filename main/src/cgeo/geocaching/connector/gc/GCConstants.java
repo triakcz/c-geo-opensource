@@ -1,15 +1,15 @@
 package cgeo.geocaching.connector.gc;
 
-import android.support.annotation.NonNull;
+import cgeo.geocaching.log.LogType;
 
 import org.apache.commons.lang3.StringUtils;
+
+import android.support.annotation.NonNull;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
-
-import cgeo.geocaching.log.LogType;
 
 /**
  * These patterns have been optimized for speed. Improve them only if you can prove
@@ -184,6 +184,8 @@ public final class GCConstants {
     static final List<String> STATUS_DISABLED = Arrays.asList("This cache is temporarily unavailable", "Das Listing zu diesem Geocache ist momentan deaktiviert");
     static final List<String> STATUS_ARCHIVED = Arrays.asList("This cache has been archived", "Dieser Geocache wurde archiviert");
     static final String STRING_CACHEDETAILS = "id=\"cacheDetails\"";
+
+    static final Pattern PATTERN_NOTIFICATION_ID = Pattern.compile("edit.aspx\\?NID=(\\d+)");
 
     // Pages with such title seem to be returned with a 200 code instead of 404
     static final String STRING_404_FILE_NOT_FOUND = "<title>404 - File Not Found</title>";

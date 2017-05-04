@@ -1,9 +1,13 @@
 package cgeo.geocaching;
 
+import butterknife.BindView;
+import butterknife.ButterKnife;
+
 import cgeo.geocaching.activity.AbstractActionBarActivity;
 import cgeo.geocaching.address.AndroidGeocoder;
 import cgeo.geocaching.connector.ConnectorFactory;
 import cgeo.geocaching.connector.capability.ILogin;
+import cgeo.geocaching.connector.gc.GCNotificationListActivity;
 import cgeo.geocaching.connector.gc.PocketQueryListActivity;
 import cgeo.geocaching.enumerations.CacheType;
 import cgeo.geocaching.enumerations.StatusCode;
@@ -31,6 +35,17 @@ import cgeo.geocaching.utils.Log;
 import cgeo.geocaching.utils.TextUtils;
 import cgeo.geocaching.utils.Version;
 import cgeo.geocaching.utils.functions.Action1;
+
+import com.google.zxing.integration.android.IntentIntegrator;
+import com.google.zxing.integration.android.IntentResult;
+import com.jakewharton.processphoenix.ProcessPhoenix;
+
+import org.apache.commons.lang3.StringUtils;
+
+import io.reactivex.Single;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.functions.Consumer;
+import io.reactivex.functions.Function;
 
 import android.app.AlertDialog;
 import android.app.AlertDialog.Builder;
@@ -64,17 +79,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-
-import butterknife.BindView;
-import butterknife.ButterKnife;
-import com.google.zxing.integration.android.IntentIntegrator;
-import com.google.zxing.integration.android.IntentResult;
-import com.jakewharton.processphoenix.ProcessPhoenix;
-import io.reactivex.Single;
-import io.reactivex.android.schedulers.AndroidSchedulers;
-import io.reactivex.functions.Consumer;
-import io.reactivex.functions.Function;
-import org.apache.commons.lang3.StringUtils;
 
 public class MainActivity extends AbstractActionBarActivity {
     @BindView(R.id.nav_satellites) protected TextView navSatellites;
@@ -371,6 +375,12 @@ public class MainActivity extends AbstractActionBarActivity {
                 return true;
             case R.id.menu_scan:
                 startScannerApplication();
+                return true;
+            case R.id.menu_manage_notifications:
+                if (!Settings.isGCPremiumMember()) {
+                    return true;
+                }
+                startActivity(new Intent(this, GCNotificationListActivity.class));
                 return true;
             case R.id.menu_pocket_queries:
                 if (!Settings.isGCPremiumMember()) {

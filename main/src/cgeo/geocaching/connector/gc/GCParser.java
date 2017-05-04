@@ -19,6 +19,7 @@ import cgeo.geocaching.log.LogEntry;
 import cgeo.geocaching.log.LogType;
 import cgeo.geocaching.log.LogTypeTrackable;
 import cgeo.geocaching.log.TrackableLog;
+import cgeo.geocaching.models.GCNotification;
 import cgeo.geocaching.models.Geocache;
 import cgeo.geocaching.models.Image;
 import cgeo.geocaching.models.PocketQuery;
@@ -36,7 +37,31 @@ import cgeo.geocaching.utils.MatcherWrapper;
 import cgeo.geocaching.utils.SynchronizedDateFormat;
 import cgeo.geocaching.utils.TextUtils;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.compress.utils.IOUtils;
+import org.apache.commons.lang3.StringEscapeUtils;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.ImmutablePair;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
+import io.reactivex.Observable;
+import io.reactivex.ObservableEmitter;
+import io.reactivex.ObservableOnSubscribe;
+import io.reactivex.Single;
+import io.reactivex.functions.BiFunction;
+import io.reactivex.functions.Consumer;
+import io.reactivex.schedulers.Schedulers;
+
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Message;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 
@@ -50,32 +75,13 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.reactivex.Observable;
-import io.reactivex.ObservableEmitter;
-import io.reactivex.ObservableOnSubscribe;
-import io.reactivex.Single;
-import io.reactivex.functions.BiFunction;
-import io.reactivex.functions.Consumer;
-import io.reactivex.schedulers.Schedulers;
-import org.apache.commons.collections4.CollectionUtils;
-import org.apache.commons.compress.utils.IOUtils;
-import org.apache.commons.lang3.StringEscapeUtils;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.ImmutablePair;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
 
 public final class GCParser {
     @NonNull
@@ -1097,6 +1103,127 @@ public final class GCParser {
         }
 
         return downloadablePocketQueries;
+    }
+
+    /**
+     * Observable that fetches a list of notifications. Returns a single element (which may be an empty list).
+     * Executes on the network scheduler.
+     */
+    public static final Observable<List<GCNotification>> searchGCNotificationListObservable = Observable.defer(new Callable<Observable<List<GCNotification>>>() {
+        @Override
+        public Observable<List<GCNotification>> call() {
+            Log.d("GCParser.searchGCNotificationListObservable called");
+            final Parameters params = new Parameters();
+
+            final String page = GCLogin.getInstance().getRequestLogged("https://www.geocaching.com/notify/default.aspx", params);
+            if (StringUtils.isBlank(page)) {
+                Log.e("GCParser.searchGCNotificationList: No data from server");
+                return Observable.just(Collections.<GCNotification>emptyList());
+            }
+
+            try {
+                final Document document = Jsoup.parse(page);
+                final List<GCNotification> list = new ArrayList<>();
+                list.addAll(parseGCNotificationList(document));
+                return Observable.just(list);
+            } catch (final Exception e) {
+                Log.e("GCParser.GCNotificationList: error parsing parsing html page", e);
+                return Observable.error(e);
+            }
+        }
+    }).subscribeOn(AndroidRxUtils.networkScheduler);
+
+    private static List<GCNotification> parseGCNotificationList(final Document document) throws Exception {
+        final List<GCNotification> notificationList = new ArrayList<GCNotification>();
+        final Elements rows = document.select("table.Table tr:has(td)");
+        for (final Element row : rows) {
+            final Elements cells = row.select("td");
+            if (cells.size() < 5) {
+                Log.e("Notification row has less than 5 cells, cannot parse.");
+                continue;
+            }
+            String edithref = cells.get(4).select("a").first().attr("href");
+            Log.d("Edithref: " + edithref);
+            String matchText = TextUtils.getMatch(edithref, GCConstants.PATTERN_NOTIFICATION_ID, "");
+            Log.d("MatchText: " + matchText);
+            int nid = Integer.parseInt(matchText);
+            String name = cells.get(2).select("strong").first().text();
+            // String logtype = cells.get(2).select("")
+            boolean notification_enabled = cells.get(0).select("img").first().attr("alt").equals("Checked");
+            CacheType cacheType = CacheType.getByPattern(cells.get(3).text());
+            Set<LogType> logTypes = new HashSet<>();
+
+            for (String i : cells.get(2).text().split(":")[1].split(",")) {
+                LogType logType = LogType.getByType(i);
+                logTypes.add(logType);
+            }
+
+            GCNotification notification = new GCNotification(nid, name, cacheType, logTypes, notification_enabled);
+            notificationList.add(notification);
+        }
+        return notificationList;
+    }
+
+    @NonNull
+    public static final void getGCNotificationDetails(final GCNotification notification, final Handler handler) {
+        Log.d("GCParser.getGCNotificationDetails called");
+        final Parameters params = new Parameters();
+        params.add("NID", String.valueOf(notification.getNid()));
+        final String page = GCLogin.getInstance().getRequestLogged("https://www.geocaching.com/notify/edit.aspx", params);
+        if (StringUtils.isBlank(page)) {
+            Log.e("GCParser.getGCNotificationDetailsObservable : No data from server");
+            handler.sendMessage(Message.obtain());
+        }
+
+        try {
+            final Document document = Jsoup.parse(page);
+
+            String[] coordsStr = document.select("#ctl00_ContentBody_LogNotify_lnkMap").attr("href").split("=")[1].split(",");
+            notification.setCoords(new Geopoint(coordsStr[0], coordsStr[1]));
+
+            String distanceText = document.select("#ctl00_ContentBody_LogNotify_tbDistance").val();
+            notification.setDistance(Double.parseDouble(distanceText));
+
+            handler.sendMessage(Message.obtain());
+        } catch (final Exception e) {
+            Log.e("GCParser.getGCNotificationDetails: error parsing parsing html page for NID=" + notification.getNid(), e);
+            handler.sendMessage(Message.obtain());
+        }
+    }
+
+    @NonNull
+    public static final void toggleGCNotificationState(final GCNotification notification, final Handler batchUpdateHandler) {
+        Log.d("GCParser.updateGCNotificationState NID:" + notification.getNid() + ", enabled:" + notification.isEnabled());
+        Parameters params = new Parameters();
+        params.add("did", String.valueOf(notification.getNid()));
+        final String page = GCLogin.getInstance().getRequestLogged("https://www.geocaching.com/notify/default.aspx", params);
+        if (page.isEmpty()) {
+            Log.e("Returned page was empty");
+        }
+        batchUpdateHandler.sendMessage(Message.obtain());
+    }
+
+    public static final void createGCNotification(final GCNotification notification, final Handler batchUpdateHadler) {
+        Log.d("GCParser.createGCNotification :" + notification);
+        //https://www.geocaching.com/notify/edit.aspx
+
+    }
+
+    public static final void deleteGCNotification(final GCNotification notification, final Handler batchUpdateHandler) {
+        final String uri = new Uri.Builder().scheme("https").authority("www.geocaching.com").path("/notify/edit.aspx").encodedQuery("NID=" + notification.getNid()).build().toString();
+        GCLogin gcLogin = GCLogin.getInstance();
+        Parameters params = new Parameters();
+        String page = gcLogin.getRequestLogged(uri, params);
+        GCLogin.transferViewstates(page, params);
+        params.add("ctl00$ContentBody$LogNotify$btnArchive", "Delete Notification");
+        params.add("ctl00$ContentBody$LogNotify$tbName", notification.getName());
+        page = gcLogin.postRequestLogged(uri, params);
+        if (!gcLogin.getLoginStatus(page)) {
+            Log.e("GCParser.postLog: Cannot log in geocaching");
+            return;
+        }
+        Log.d("Delete page: " + page);
+        batchUpdateHandler.sendMessage(Message.obtain());
     }
 
     @NonNull

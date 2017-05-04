@@ -36,6 +36,11 @@
         app:showAsAction="ifRoom">
     </item>
     <item
+        android:id="@+id/menu_manage_notifications"
+        android:icon="@drawable/ic_menu_pocket_query"
+        android:title="@string/menu_manage_notifications"
+        app:showAsAction="ifRoom"></item>
+    <item
         android:id="@+id/menu_scan"
         android:icon="@drawable/ic_menu_barcode"
         android:title="@string/menu_scan_geo"

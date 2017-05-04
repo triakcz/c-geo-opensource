@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/menu_activate"
+        android:icon="@drawable/ic_menu_mark"
+        android:title="@string/notification_activate"
+        app:showAsAction="ifRoom"></item>
+    <item
+        android:id="@+id/menu_deactivate"
+        android:icon="@drawable/ic_menu_remove"
+        android:title="@string/notification_deactivate"
+        app:showAsAction="ifRoom"></item>
+    <item
+        android:id="@+id/menu_delete"
+        android:icon="@drawable/ic_menu_delete"
+        android:title="@string/notification_delete"
+        app:showAsAction="ifRoom"></item>
+    <item
+        android:id="@+id/menu_add"
+        android:icon="@drawable/ic_menu_add"
+        android:title="@string/notification_add"
+        app:showAsAction="ifRoom"></item>
+</menu>

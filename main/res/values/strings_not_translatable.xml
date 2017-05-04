@@ -17,6 +17,11 @@
         <item>@string/unit_mi</item>
     </string-array>
 
+    <string-array name="distance_units_km_mi" translatable="false">
+        <item>@string/unit_km</item>
+        <item>@string/unit_mi</item>
+    </string-array>
+
     <!-- upload image scaling -->
     <integer-array name="log_image_scale_values">
         <item>-1</item>
